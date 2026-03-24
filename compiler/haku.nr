@@ -266,21 +266,29 @@ def compile(toks) {
     return out
 }
 
+def usage(prg) {
+    echo('usage: ', prg, ' [flags] <input>')
+    echo('flags:')
+    echo('    -h, --help            show this usage and exit')
+    echo('    -r, --run             automatically invokes <zoe> on the compiled file')
+    echo('    -o, --output <name>   compiles to file <name>')
+    exit(0)
+}
+
 def main(args) {
-    if len(args) < 2 {
-        echo("usage: ", args[0], " [-r|-o output] <input>")
-        exit(1)
-    }
+    if len(args) < 2 { usage(args[0]) }
 
     run_flag = false
     out_file = in_file = nil
     i = -1
     while (i = i + 1) < len(args) {
-        if args[i] == '-o' && i+1 < len(args) {
+        if contains(['-o', '-output', '--output'], args[i]) && i+1 < len(args) {
             out_file = args[i+1]
             i = i + 1
-        } elif args[i] == '-r' {
+        } elif contains(['-r', '-run', '--run'], args[i]) {
             run_flag = true
+        } elif contains(['-h', '-help', '--help'], args[i]) {
+            usage(args[0])
         } else {
             in_file = args[i]
         }
