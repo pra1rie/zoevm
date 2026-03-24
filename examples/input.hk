@@ -1,0 +1,21 @@
+def get_input WRITE 1 READ 0 ret
+
+def str_to_num
+    !s 0 !n 0 !i
+    @s STRING_LENGTH 1 !sz
+    :loop_start
+    @s @i STRING_AT 2 !c
+    @n 10 *
+    @c -48 + + !n
+    @i 1 + !i
+    @i @sz < @c 48 >= and @c 57 <= and jumpif loop_start
+    @n
+ret
+
+"what's your age? " call get_input !age_str
+@age_str call str_to_num !age_num
+
+69 @age_num - !num
+
+"your age + " @num " = " @age_num @num + "\n" WRITE 5
+

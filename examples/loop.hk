@@ -1,0 +1,5 @@
+# print value with newline
+def say "\n" WRITE 2 ret
+0 :l dup call say 1 + dup 10 < jumpif l
+call say # print last value
+
