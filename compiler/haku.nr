@@ -85,11 +85,10 @@ BINARY_OPERATORS = enum([
 ])
 
 STRING_OPERATORS = {
-    "==" = "EQ", "!=" = "NEQ", "<" = "LT", ">" = "GT",
-    "<=" = "LEQ", ">=" = "GEQ", "+" = "ADD", "-" = "SUB",
-    "*" = "MUL", "/" = "DIV", "%" = "MOD",
-    "^" = "XOR", "&" = "AND", "|" = "OR",
-    "<<" = "SHL", ">>" = "SHR",
+    "=="  = "EQ",   "!=" = "NEQ", "<"  = "LT",  ">"  = "GT",
+    "<="  = "LEQ",  ">=" = "GEQ", "+"  = "ADD", "-"  = "SUB",
+    "*"   = "MUL",  "/"  = "DIV", "%"  = "MOD", "^"  = "XOR",
+    "&"   = "AND",  "|"  = "OR",  "<<" = "SHL", ">>" = "SHR",
     "and" = "BAND", "or" = "BOR",
 }
 
@@ -118,7 +117,7 @@ def compile_bytecode(bytecode) {
     }
     for str = bytecode.strs {
         bytes = merge(bytes, string_to_bytes(str))
-        bytes = merge(bytes, 0)
+        bytes = merge(bytes, 0) # zero terminate strings
     }
     return bytes_to_string(bytes)
 }
@@ -164,7 +163,7 @@ def tokenize(text) {
 }
 
 def compile(toks) {
-    out = { insts = [], strs = ['\n'] }
+    out = { insts = [], strs = [] }
     vars = {}
     labels = {}
     funs = {}
