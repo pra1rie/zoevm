@@ -379,7 +379,7 @@ void vm_load_bytecode(zoe_vm *vm, const char *path) {
     FILE *file = fopen(path, "rb");
     if (!file) ZOE_ERROR("could not load bytecode from file '%s'\n", path);
     fread(bytecode.header, sizeof(char), 4, file);
-    if (strcmp(bytecode.header, ".ZOE") != 0)
+    if (strncmp(bytecode.header, ".ZOE", 4) != 0)
         ZOE_ERROR("file '%s' is not valid zoe bytecode\n", path);
     fread(&bytecode.num_insts, sizeof(uint32_t), 1, file);
     fread(&bytecode.num_strs, sizeof(uint32_t), 1, file);
