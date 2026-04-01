@@ -231,6 +231,12 @@ static int _compare(zoe_value a, zoe_value b) {
     }
 }
 
+static inline float _get_float(zoe_value v) {
+    if (ZOE_TYPE(v) == ZOE_INT) return (float)(v.i >> 1);
+    v.i >>= 3;
+    return v.f;
+}
+
 void vm_binary(zoe_vm *vm, uint32_t op) {
     zoe_value left = vm_pop(vm);
     zoe_value right = vm_pop(vm);
@@ -245,20 +251,11 @@ void vm_binary(zoe_vm *vm, uint32_t op) {
     int is_real = 0;
     if (ZOE_TYPE(left) == ZOE_REAL || ZOE_TYPE(right) == ZOE_REAL) is_real = 1;
     if (!is_real && (ZOE_TYPE(left) != ZOE_INT || ZOE_TYPE(right) != ZOE_INT))
-        ZOE_ERROR("binary operation expects 2 integers\n");
+        goto expect_int;
     int64_t ia, ib;
     float fa, fb;
-    if (is_real) {
-        if (ZOE_TYPE(left) == ZOE_INT) { left.i >>= 1; fb = (float)left.i; }
-        else { left.i >>= 3; fb = left.f; }
-        if (ZOE_TYPE(right) == ZOE_INT) { right.i >>= 1; fa = (float)right.i; }
-        else { right.i >>= 3; fa = right.f; }
-    } else {
-        if (ZOE_TYPE(left) == ZOE_INT) { left.i >>= 1; ib = left.i; }
-        else { left.i >>= 3; ib = (int64_t)left.f; }
-        if (ZOE_TYPE(right) == ZOE_INT) { right.i >>= 1; ia = right.i; }
-        else { right.i >>= 3; ia = (int64_t)right.f; }
-    }
+    if (is_real) fa = _get_float(right), fb = _get_float(left);
+    else ia = right.i >> 1, ib = left.i >> 1;
     switch (op) {
     default: ZOE_ERROR("unknown operation\n");
     case ZOE_BIN_LT:  res.i = is_real? fa < fb : ia < ib; is_real = 0; break;
@@ -269,37 +266,42 @@ void vm_binary(zoe_vm *vm, uint32_t op) {
     case ZOE_BIN_SUB: if (is_real) res.f = fa + fb; else res.i = ia - ib; break;
     case ZOE_BIN_MUL: if (is_real) res.f = fa + fb; else res.i = ia * ib; break;
     case ZOE_BIN_DIV:
-        if (is_real? fb == 0 : ib == 0) ZOE_ERROR("division by zero\n");
+        if (is_real? fb == 0 : ib == 0) goto div_by_zero;
         if (is_real) res.f = fa / fb; else res.i = ia / ib; break;
     case ZOE_BIN_MOD:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
-        if (ib == 0) ZOE_ERROR("division by zero\n");
+        if (is_real) goto expect_int;
+        if (ib == 0) goto div_by_zero;
         res.i = ia % ib; break;
     case ZOE_BIN_AND:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia & ib; break;
     case ZOE_BIN_OR:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia | ib; break;
     case ZOE_BIN_XOR:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia ^ ib; break;
     case ZOE_BIN_SHL:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia << ib; break;
     case ZOE_BIN_SHR:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia >> ib; break;
     case ZOE_BIN_BAND:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia && ib; break;
     case ZOE_BIN_BOR:
-        if (is_real) ZOE_ERROR("binary operation expects 2 integers\n");
+        if (is_real) goto expect_int;
         res.i = ia || ib; break;
     }
     if (is_real) res.i = (res.i << 3) | ZOE_REAL;
     else res.i = (res.i << 1) | ZOE_INT;
     vm_push(vm, res);
+    return;
+expect_int:
+    ZOE_ERROR("binary operation expects 2 integers\n");
+div_by_zero:
+    ZOE_ERROR("division by zero\n");
 }
 
 void vm_not(zoe_vm *vm) {
