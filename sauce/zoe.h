@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-// TODO: implement my own mark and sweep gc
-#include <gc.h>
 
 #define ZOE_ERROR(...) do { fprintf(stderr, "error: "__VA_ARGS__); exit(1); } while(0)
 
@@ -26,11 +24,12 @@
 typedef union zoe_value zoe_value;
 typedef struct zoe_object zoe_object;
 typedef struct zoe_vm zoe_vm;
-typedef void(*zoe_foreign)(zoe_vm*, int, zoe_value*);
+typedef void(*zoe_foreign)(zoe_vm*, int);
 
 enum { ZOE_OBJ_PTR, ZOE_OBJ_STR, ZOE_OBJ_ARR };
 struct zoe_object {
-    int type, size, cap; //, mark;
+    int type, size, cap, mark;
+    struct zoe_object *next;
     union {
         void *as_ptr;
         char *as_str;
@@ -84,13 +83,19 @@ typedef struct {
     char **strs;
 } zoe_bytecode;
 
+// TODO: the gc will also free all variables that aren't on the
+//       stack when it runs, althought the point of them is to
+//       store objects someplace else for later use.
+//       maybe make their management more manual?
 struct zoe_vm {
     uint32_t ip, sp, cp, halt, code_sz, num_funs;
+    uint32_t num_objs, max_objs;
     zoe_value stack[ZOE_STACK_MAX];
     zoe_value vars[ZOE_VARS_MAX];
     uint32_t call_stack[ZOE_STACK_MAX];
     zoe_foreign funs[ZOE_FUNS_MAX];
     zoe_inst *code;
+    zoe_object *first_obj;
 };
 
 zoe_vm *vm_init(void);
@@ -113,6 +118,8 @@ void vm_extern(zoe_vm *vm, uint32_t arity);
 void vm_binary(zoe_vm *vm, uint32_t op);
 void vm_return(zoe_vm *vm);
 
+void gc_collect(zoe_vm *vm);
+zoe_object *obj_new(zoe_vm *vm, int type);
 void obj_free(zoe_object *obj);
 
 #ifdef ZOE_IMPLEMENTATION
@@ -120,18 +127,14 @@ void obj_free(zoe_object *obj);
 zoe_vm *vm_init(void) {
     zoe_vm *vm = malloc(sizeof(zoe_vm));
     memset(vm, 0, sizeof(*vm));
+    vm->first_obj = NULL;
+    vm->max_objs = ZOE_OBJS_MAX;
     return vm;
 }
 
 void vm_free(zoe_vm *vm) {
-    for (int i = 0; i < ZOE_VARS_MAX; ++i) {
-        if (ZOE_ALLOCATED(vm->vars[i]))
-            obj_free(vm->vars[i].p);
-    }
-    for (int i = 0; i < vm->sp; ++i) {
-        if (ZOE_ALLOCATED(vm->stack[i]))
-            obj_free(vm->stack[i].p);
-    }
+    vm->sp = 0;
+    gc_collect(vm);
     free(vm);
 }
 
@@ -195,10 +198,7 @@ void vm_extern(zoe_vm *vm, uint32_t arity) {
     uint64_t addr = val.i >> 1;
     if (ZOE_TYPE(val) != ZOE_INT || addr >= vm->num_funs) ZOE_ERROR("invalid function addr\n");
     if (vm->sp < arity) ZOE_ERROR("not enough arguments\n");
-    zoe_value args[arity];
-    memcpy(args, vm->stack+vm->sp-arity, arity*sizeof(zoe_value));
-    vm->sp -= arity;
-    vm->funs[addr](vm, arity, args);
+    vm->funs[addr](vm, arity);
 }
 
 static int _compare(zoe_value a, zoe_value b);
@@ -406,26 +406,74 @@ void vm_load_bytecode(zoe_vm *vm, const char *path) {
         if (bytecode.insts[i].type != ZOE_INST_PUSH) continue;
         if (ZOE_TYPE(bytecode.insts[i].value) != ZOE_PTR) continue;
         char *str = bytecode.strs[bytecode.insts[i].value.i >> 3];
-        zoe_object *obj = malloc(sizeof(zoe_object));
-        obj->type = ZOE_OBJ_STR;
+        // make sure to increase the maximum capacity of objects
+        // so as not to run the gc here!!
+        if (vm->num_objs >= vm->max_objs) vm->max_objs *= 2;
+        zoe_object *obj = obj_new(vm, ZOE_OBJ_STR);
         obj->size = obj->cap = strlen(str);
         obj->as_str = str;
         bytecode.insts[i].value.p = obj;
     }
-    free(bytecode.strs); // free the array, the strings are still allocated!
+    free(bytecode.strs); // free the array, the strings are now handled by the gc!
     fclose(file);
     vm->code = bytecode.insts;
     vm->code_sz = bytecode.num_insts;
 }
 
-void obj_free(zoe_object *obj) {
-    if (obj->type == ZOE_OBJ_STR) free(obj->as_str);
-    else {
+static void _mark(zoe_object *obj) {
+    if (obj->mark) return;
+    obj->mark = 1;
+    if (obj->type == ZOE_OBJ_ARR) {
         for (int i = 0; i < obj->size; ++i) {
             if (ZOE_ALLOCATED(obj->as_arr[i]))
-                obj_free(obj->as_arr[i].p);
+                _mark(obj->as_arr[i].p);
         }
-        free(obj->as_arr);
+    }
+}
+
+static void _sweep(zoe_vm *vm) {
+    zoe_object **obj = &vm->first_obj;
+    while (*obj) {
+        if (!(*obj)->mark) {
+            zoe_object *prev = *obj;
+            *obj = prev->next;
+            obj_free(prev);
+            --vm->num_objs;
+        } else {
+            (*obj)->mark = 0;
+            obj = &(*obj)->next;
+        }
+    }
+}
+
+void gc_collect(zoe_vm *vm) {
+    for (int i = 0; i < vm->sp; ++i) {
+        if (ZOE_ALLOCATED(vm->stack[i]))
+            _mark(vm->stack[i].p);
+    }
+    _sweep(vm);
+    vm->max_objs = (vm->num_objs)? vm->num_objs * 2 : ZOE_OBJS_MAX;
+}
+
+zoe_object *obj_new(zoe_vm *vm, int type) {
+    if (vm->num_objs >= vm->max_objs) gc_collect(vm);
+    zoe_object *obj = malloc(sizeof(zoe_object));
+    obj->type = type;
+    obj->mark = 0;
+    obj->next = vm->first_obj;
+    vm->first_obj = obj;
+    ++vm->num_objs;
+    return obj;
+}
+
+void obj_free(zoe_object *obj) {
+    switch (obj->type) {
+    case ZOE_OBJ_STR: free(obj->as_str); break;
+    case ZOE_OBJ_ARR: free(obj->as_arr); break;
+    // TODO: pointer objects should probably know how to free themselves, like
+    // also storing a function pointer to free up its memory, thus allowing for
+    // user-defined objects to be properly handled by the gc as well.
+    // case ZOE_OBJ_PTR: free(obj->as_ptr); break;
     }
     free(obj);
 }
