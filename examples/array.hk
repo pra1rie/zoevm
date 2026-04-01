@@ -1,0 +1,12 @@
+
+ARRAY_CREATE 0 !array
+69 @array ARRAY_PUSH 2
+420 @array ARRAY_PUSH 2
+
+0
+:loop
+dup @array ARRAY_AT 2
+"\n" WRITE 2
+1 +
+dup @array ARRAY_LENGTH 1 < jumpif loop
+

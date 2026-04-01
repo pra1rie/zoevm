@@ -1,0 +1,6 @@
+
+:loop
+"Hello, " "World!\n" STRING_CONCAT 2
+WRITE 1
+jump loop
+
