@@ -34,13 +34,14 @@ static void _print_val(zoe_value val, int escape) {
     }
 }
 
-static void extn_write(zoe_vm *vm, int argc, zoe_value *argv) {
-    for (int i = 0; i < argc; ++i) _print_val(argv[i], 0);
+static void extn_write(zoe_vm *vm, int nargs) {
+    vm->sp -= nargs;
+    for (int i = 0; i < nargs; ++i)
+        _print_val(vm->stack[vm->sp+i], 0);
 }
 
-static void extn_read(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = malloc(sizeof(zoe_object));
-    obj->type = ZOE_OBJ_STR;
+static void extn_read(zoe_vm *vm, int nargs) {
+    zoe_object *obj = obj_new(vm, ZOE_OBJ_STR);
     obj->size = 0;
     obj->cap = _MIN_ARRAY_SIZE;
     obj->as_str = malloc(obj->cap);
@@ -60,71 +61,71 @@ static const char *_obj_type_to_cstr[] = {
     [ZOE_OBJ_ARR] = "an array",
 };
 
-static inline zoe_object *_get_object(int type, const char *fn_name, int arity, int argc, zoe_value *argv) {
-    const char *argstr = arity == 1? "argument" : "arguments";
-    if (argc != arity) ZOE_ERROR("%s: expected %d %s, got %d\n", fn_name, arity, argstr, argc);
-    if (!ZOE_ALLOCATED(argv[0])) goto err;
-    zoe_object *obj = argv[0].p;
-    if (obj->type != type) goto err;
-    return obj;
-err:
-    ZOE_ERROR("%s: expected %s\n", fn_name, _obj_type_to_cstr[type]);
+static inline zoe_object *_get_object(zoe_vm *vm, int type, const char *fn_name, int fn_arity, int nargs) {
+    const char *argstr = fn_arity == 1? "argument" : "arguments";
+    if (nargs != fn_arity) ZOE_ERROR("%s: expected %d %s, got %d\n", fn_name, fn_arity, argstr, nargs);
+    zoe_value val = vm_pop(vm);
+    if (!ZOE_ALLOCATED(val) || val.p->type != type)
+        ZOE_ERROR("%s: expected %s\n", fn_name, _obj_type_to_cstr[type]);
+    return val.p;
 }
 
-static void extn_string_concat(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *s1 = _get_object(ZOE_OBJ_STR, "string_concat", 2, argc, argv);
-    zoe_object *s2 = _get_object(ZOE_OBJ_STR, "string_concat", 2, argc, argv+1);
-    if (s1->size + s2->size >= s1->cap)
-        s1->as_str = realloc(s1->as_str, s1->cap += s1->size + s2->size);
-    memmove(s1->as_str+s1->size, s2->as_str, s2->size);
-    s1->size += s2->size;
-    vm_push(vm, (zoe_value) { .p = s1 });
+static void extn_string_concat(zoe_vm *vm, int nargs) {
+    zoe_object *res = obj_new(vm, ZOE_OBJ_STR);
+    zoe_object *s1 = _get_object(vm, ZOE_OBJ_STR, "string_concat", 2, nargs);
+    zoe_object *s2 = _get_object(vm, ZOE_OBJ_STR, "string_concat", 2, nargs);
+    res->size = (s1->size + s2->size), res->cap = (s1->cap + s2->cap);
+    res->as_str = malloc(res->cap);
+    memmove(res->as_str, s1->as_str, s1->size);
+    memmove(res->as_str+s1->size, s2->as_str, s2->size);
+    vm_push(vm, (zoe_value) { .p = res });
 }
 
-static void extn_string_length(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_STR, "string_length", 1, argc, argv);
+static void extn_string_length(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_STR, "string_length", 1, nargs);
     vm_push(vm, (zoe_value) {.i = (obj->size << 1) | ZOE_INT});
 }
 
-static void extn_string_at(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_STR, "string_at", 2, argc, argv);
-    if (ZOE_TYPE(argv[1]) != ZOE_INT) ZOE_ERROR("string_at: expected an integer\n");
-    int index = argv[1].i >> 1;
+static void extn_string_at(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_STR, "string_at", 2, nargs);
+    zoe_value val = vm_pop(vm);
+    if (ZOE_TYPE(val) != ZOE_INT) ZOE_ERROR("string_at: expected an integer\n");
+    int index = val.i >> 1;
     if (index < 0 || index >= obj->size) ZOE_ERROR("string_at: index out of range\n");
     vm_push(vm, (zoe_value) {.i = (obj->as_str[index] << 1) | ZOE_INT});
 }
 
-static void extn_array_create(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = malloc(sizeof(zoe_object));
-    obj->type = ZOE_OBJ_ARR;
-    obj->size = argc;
-    obj->cap = argc == 0? _MIN_ARRAY_SIZE : argc;
+static void extn_array_create(zoe_vm *vm, int nargs) {
+    zoe_object *obj = obj_new(vm, ZOE_OBJ_ARR);
+    obj->size = nargs;
+    obj->cap = nargs == 0? _MIN_ARRAY_SIZE : nargs;
     obj->as_arr = malloc(obj->cap * sizeof(zoe_value));
-    memmove(obj->as_arr, argv, obj->cap * sizeof(zoe_value));
+    for (int i = 0; i < nargs; ++i) obj->as_arr[i] = vm_pop(vm);
     vm_push(vm, (zoe_value) { .p = obj });
 }
 
-static void extn_array_push(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_ARR, "array_push", 2, argc, argv);
+static void extn_array_push(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_ARR, "array_push", 2, nargs);
     if (obj->size >= obj->cap)
         obj->as_arr = realloc(obj->as_arr, (obj->cap *= 1.5) * sizeof(zoe_value));
-    obj->as_arr[obj->size++] = argv[1];
+    obj->as_arr[obj->size++] = vm_pop(vm);
 }
 
-static void extn_array_pop(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_ARR, "array_pop", 1, argc, argv);
+static void extn_array_pop(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_ARR, "array_pop", 1, nargs);
     if (obj->size) --obj->size;
 }
 
-static void extn_array_length(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_ARR, "array_length", 1, argc, argv);
+static void extn_array_length(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_ARR, "array_length", 1, nargs);
     vm_push(vm, (zoe_value) { .i = (obj->size << 1) | ZOE_INT });
 }
 
-static void extn_array_at(zoe_vm *vm, int argc, zoe_value *argv) {
-    zoe_object *obj = _get_object(ZOE_OBJ_ARR, "array_at", 2, argc, argv);
-    if (ZOE_TYPE(argv[1]) != ZOE_INT) ZOE_ERROR("array_at: expected an integer\n");
-    int index = argv[1].i >> 1;
+static void extn_array_at(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_ARR, "array_at", 2, nargs);
+    zoe_value val = vm_pop(vm);
+    if (ZOE_TYPE(val) != ZOE_INT) ZOE_ERROR("array_at: expected an integer\n");
+    int index = val.i >> 1;
     if (index < 0 || index >= obj->size) ZOE_ERROR("array_at: index out of range\n");
     vm_push(vm, obj->as_arr[index]);
 }
@@ -179,6 +180,6 @@ int main(int argc, char **argv) {
     }
 #endif
     vm_execute(vm);
-    // vm_free(vm);
+    vm_free(vm);
     return 0;
 }
