@@ -1,0 +1,13 @@
+def say "\n" WRITE 2 ret
+
+def main
+    0 !i
+    0 !x
+    :loop
+        @i 1 + !i
+        @x @i + !x
+        @i 250001 < jumpif loop
+    @x call say
+ret
+
+call main
