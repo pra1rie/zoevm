@@ -1,5 +1,5 @@
 
-CFLAGS = -Isauce -Wall -Werror -lgc
+CFLAGS = -Isauce -Wall -Werror
 
 all:
 	$(CC) -O2 sauce/main.c -o zoe $(CFLAGS)
