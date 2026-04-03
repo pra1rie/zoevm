@@ -83,10 +83,7 @@ typedef struct {
     char **strs;
 } zoe_bytecode;
 
-// TODO: the gc will also free all variables that aren't on the
-//       stack when it runs, althought the point of them is to
-//       store objects someplace else for later use.
-//       maybe make their management more manual?
+
 struct zoe_vm {
     uint32_t ip, sp, cp, halt, code_sz, num_funs;
     uint32_t num_objs, max_objs;
@@ -133,8 +130,18 @@ zoe_vm *vm_init(void) {
 }
 
 void vm_free(zoe_vm *vm) {
+    // set stack size to zero and all variables to NIL so the
+    // GC finds no object references, freeing them all.
     vm->sp = 0;
+    for (int i = 0; i < ZOE_VARS_MAX; ++i)
+        vm->vars[i] = (zoe_value){.i = ZOE_NIL};
     gc_collect(vm);
+    // free the constants from the bytecode separately because they are
+    // not managed by the garbage collector.
+    for (int i = 0; i < vm->code_sz; ++i) {
+        if (vm->code[i].type == ZOE_INST_PUSH && ZOE_ALLOCATED(vm->code[i].value))
+            obj_free(vm->code[i].value.p);
+    }
     free(vm);
 }
 
@@ -149,7 +156,6 @@ zoe_value vm_pop(zoe_vm *vm) {
 }
 
 void vm_dup(zoe_vm *vm) {
-    // TODO: maybe duplicate the object as well
     zoe_value val = vm_pop(vm);
     vm_push(vm, val);
     vm_push(vm, val);
@@ -406,15 +412,14 @@ void vm_load_bytecode(zoe_vm *vm, const char *path) {
         if (bytecode.insts[i].type != ZOE_INST_PUSH) continue;
         if (ZOE_TYPE(bytecode.insts[i].value) != ZOE_PTR) continue;
         char *str = bytecode.strs[bytecode.insts[i].value.i >> 3];
-        // make sure to increase the maximum capacity of objects
-        // so as not to run the gc here!!
-        if (vm->num_objs >= vm->max_objs) vm->max_objs *= 2;
-        zoe_object *obj = obj_new(vm, ZOE_OBJ_STR);
+        // these strings are NOT allocated within the GC!
+        // they are constants within the compiler.
+        zoe_object *obj = malloc(sizeof(*obj));
         obj->size = obj->cap = strlen(str);
-        obj->as_str = str;
+        obj->type = ZOE_OBJ_STR, obj->as_str = str;
         bytecode.insts[i].value.p = obj;
     }
-    free(bytecode.strs); // free the array, the strings are now handled by the gc!
+    free(bytecode.strs); // free the array, the strings still allocated!
     fclose(file);
     vm->code = bytecode.insts;
     vm->code_sz = bytecode.num_insts;
@@ -450,6 +455,10 @@ void gc_collect(zoe_vm *vm) {
     for (int i = 0; i < vm->sp; ++i) {
         if (ZOE_ALLOCATED(vm->stack[i]))
             _mark(vm->stack[i].p);
+    }
+    for (int i = 0; i < ZOE_VARS_MAX; ++i) {
+        if (ZOE_ALLOCATED(vm->vars[i]))
+            _mark(vm->vars[i].p);
     }
     _sweep(vm);
     vm->max_objs = (vm->num_objs)? vm->num_objs * 2 : ZOE_OBJS_MAX;
