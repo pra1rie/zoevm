@@ -8,13 +8,17 @@
 
 static void _print_val(zoe_value val, int escape) {
     switch (ZOE_TYPE(val)) {
-    default: printf("nil"); break;
     case ZOE_INT: printf("%ld", val.i >> 1); break;
     case ZOE_REAL:
         val.i >>= 3;
         printf("%.2f", val.f); break;
-    case ZOE_PTR: {
+    case ZOE_PTR:
+        if (val.i == ZOE_NIL) {
+            printf("nil");
+            break;
+        }
         switch (val.p->type) {
+        default: printf("%p", val.p); break;
         case ZOE_OBJ_STR:
             if (escape) printf("\"%.*s\"", val.p->size, val.p->as_str);
             else printf("%.*s", val.p->size, val.p->as_str);
@@ -27,10 +31,8 @@ static void _print_val(zoe_value val, int escape) {
             }
             printf("]");
             break;
-        default:
-            printf("%p", val.p);
         }
-    } break;
+        break;
     }
 }
 
