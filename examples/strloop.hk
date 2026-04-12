@@ -1,6 +1,9 @@
 
 :loop
-"Hello, " "World!\n" STRING_CONCAT 2
-WRITE 1
+"Hullo!" !s1
+"World!\n" "Hello, " STRING_CONCAT 2 !s2
+@s2 WRITE 1
+@s1 "\n" WRITE 2
+69 !s1
 jump loop
 
