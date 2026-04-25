@@ -145,13 +145,14 @@ static void extn_array_at(zoe_vm *vm, int nargs) {
 
 static void extn_map_create(zoe_vm *vm, int nargs) {
     zoe_object *obj = obj_new(vm, ZOE_OBJ_MAP);
+    obj->size = 0;
     obj->cap = _MIN_ARRAY_SIZE;
     obj->as_map = malloc(obj->cap * sizeof(zoe_pair));
     vm_push(vm, (zoe_value) { .p = obj });
 }
 
 static void extn_map_set(zoe_vm *vm, int nargs) {
-    zoe_object *obj = _get_object(vm, ZOE_OBJ_MAP, "map_set", 1, nargs);
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_MAP, "map_set", 3, nargs);
     zoe_value value = vm_pop(vm);
     zoe_value key = vm_pop(vm);
     for (int i = 0; i < obj->size; ++i) {
