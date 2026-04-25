@@ -31,6 +31,16 @@ static void _print_val(zoe_value val, int escape) {
             }
             printf("]");
             break;
+        case ZOE_OBJ_MAP:
+            printf("[");
+            for (int j = 0; j < val.p->size; ++j) {
+                if (j > 0) printf(", ");
+                _print_val(val.p->as_map[j].key, 1);
+                printf(": ");
+                _print_val(val.p->as_map[j].value, 1);
+            }
+            printf("]");
+            break;
         }
         break;
     }
@@ -61,6 +71,7 @@ static const char *_obj_type_to_cstr[] = {
     [ZOE_OBJ_PTR] = "a pointer",
     [ZOE_OBJ_STR] = "a string",
     [ZOE_OBJ_ARR] = "an array",
+    [ZOE_OBJ_MAP] = "a map",
 };
 
 static inline zoe_object *_get_object(zoe_vm *vm, int type, const char *fn_name, int fn_arity, int nargs) {
@@ -132,6 +143,56 @@ static void extn_array_at(zoe_vm *vm, int nargs) {
     vm_push(vm, obj->as_arr[index]);
 }
 
+static void extn_map_create(zoe_vm *vm, int nargs) {
+    zoe_object *obj = obj_new(vm, ZOE_OBJ_MAP);
+    obj->cap = _MIN_ARRAY_SIZE;
+    obj->as_map = malloc(obj->cap * sizeof(zoe_pair));
+    vm_push(vm, (zoe_value) { .p = obj });
+}
+
+static void extn_map_set(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_MAP, "map_set", 1, nargs);
+    zoe_value value = vm_pop(vm);
+    zoe_value key = vm_pop(vm);
+    for (int i = 0; i < obj->size; ++i) {
+        if (_compare(obj->as_map[i].key, key)) {
+            obj->as_map[i].value = value;
+            return;
+        }
+    }
+    if (obj->size >= obj->cap)
+        obj->as_map = realloc(obj->as_map, (obj->cap *= 1.5) * sizeof(zoe_pair));
+    obj->as_map[obj->size++] = (zoe_pair) { .key = key, .value = value };
+}
+
+static void extn_map_get(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_MAP, "map_get", 2, nargs);
+    zoe_value key = vm_pop(vm);
+    for (int i = 0; i < obj->size; ++i) {
+        if (_compare(obj->as_map[i].key, key)) {
+            vm_push(vm, obj->as_map[i].value);
+            return;
+        }
+    }
+    ZOE_ERROR("map_get: key does not exist\n");
+}
+
+static void extn_map_del(zoe_vm *vm, int nargs) {
+    zoe_object *obj = _get_object(vm, ZOE_OBJ_MAP, "map_del", 2, nargs);
+    zoe_value key = vm_pop(vm);
+    int index = -1;
+    for (int i = 0; i < obj->size; ++i) {
+        if (_compare(obj->as_map[i].key, key)) {
+            index = i;
+            break;
+        }
+    }
+    if (index < 0) ZOE_ERROR("map_del: key does not exist\n");
+    --obj->size;
+    for (int i = index; i < obj->size; ++i)
+        obj->as_map[i] = obj->as_map[i+1];
+}
+
 #ifdef _DEBUG
 static const char *const _inst_to_str[NUM_ZOE_INSTRUCTIONS] = {
     [ZOE_INST_NOP] = "NOP",
@@ -166,6 +227,10 @@ int main(int argc, char **argv) {
     vm_load_function(vm, extn_array_pop);
     vm_load_function(vm, extn_array_length);
     vm_load_function(vm, extn_array_at);
+    vm_load_function(vm, extn_map_create);
+    vm_load_function(vm, extn_map_set);
+    vm_load_function(vm, extn_map_get);
+    vm_load_function(vm, extn_map_del);
     vm_load_bytecode(vm, argv[1]);
 #ifdef _DEBUG
     for (int i = 0; i < vm->code_sz; ++i) {

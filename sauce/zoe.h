@@ -24,9 +24,10 @@
 typedef union zoe_value zoe_value;
 typedef struct zoe_object zoe_object;
 typedef struct zoe_vm zoe_vm;
+typedef struct zoe_pair zoe_pair;
 typedef void(*zoe_foreign)(zoe_vm*, int);
 
-enum { ZOE_OBJ_PTR, ZOE_OBJ_STR, ZOE_OBJ_ARR };
+enum { ZOE_OBJ_PTR, ZOE_OBJ_STR, ZOE_OBJ_ARR, ZOE_OBJ_MAP };
 struct zoe_object {
     int type, size, cap, mark;
     struct zoe_object *next;
@@ -34,10 +35,12 @@ struct zoe_object {
         void *as_ptr;
         char *as_str;
         zoe_value *as_arr;
+        zoe_pair *as_map;
     };
 };
 
 union zoe_value { int64_t i; float f; zoe_object *p; };
+struct zoe_pair { zoe_value key, value; };
 enum { ZOE_NIL = 0, ZOE_PTR = 0b000, ZOE_INT = 1,  ZOE_REAL = 0b010 };
 #define ZOE_TYPE(V) (((V).i & 0b1)? ZOE_INT : ((V).i == ZOE_NIL? ZOE_NIL : (V).i & 0b111))
 #define ZOE_ALLOCATED(V) ((V).i != ZOE_NIL && ZOE_TYPE(V) == ZOE_PTR)
@@ -82,7 +85,6 @@ typedef struct {
     zoe_inst *insts;
     char **strs;
 } zoe_bytecode;
-
 
 struct zoe_vm {
     uint32_t ip, sp, cp, halt, code_sz, num_funs;
@@ -220,6 +222,14 @@ static int _compare_objs(zoe_object *a, zoe_object *b) {
         if (a->size != b->size) return 0;
         for (int i = 0; i < a->size; ++i)
             if (!_compare(a->as_arr[i], b->as_arr[i])) return 0;
+        return 1;
+    case ZOE_OBJ_MAP:
+        if (a->size != b->size) return 0;
+        for (int i = 0; i < a->size; ++i) {
+            int same_keys = _compare(a->as_map[i].key, b->as_map[i].key);
+            int same_vals = _compare(a->as_map[i].value, b->as_map[i].value);
+            if (!same_keys || !same_vals) return 0;
+        }
         return 1;
     }
 }
@@ -433,6 +443,13 @@ static void _mark(zoe_object *obj) {
             if (ZOE_ALLOCATED(obj->as_arr[i]))
                 _mark(obj->as_arr[i].p);
         }
+    } else if (obj->type == ZOE_OBJ_MAP) {
+        for (int i = 0; i < obj->size; ++i) {
+            if (ZOE_ALLOCATED(obj->as_map[i].key))
+                _mark(obj->as_map[i].key.p);
+            if (ZOE_ALLOCATED(obj->as_map[i].value))
+                _mark(obj->as_map[i].value.p);
+        }
     }
 }
 
@@ -479,6 +496,7 @@ void obj_free(zoe_object *obj) {
     switch (obj->type) {
     case ZOE_OBJ_STR: free(obj->as_str); break;
     case ZOE_OBJ_ARR: free(obj->as_arr); break;
+    case ZOE_OBJ_MAP: free(obj->as_map); break;
     // TODO: pointer objects should probably know how to free themselves, like
     // also storing a function pointer to free up its memory, thus allowing for
     // user-defined objects to be properly handled by the gc as well.
