@@ -1,0 +1,16 @@
+# uncommenting the loop should not leak any memory
+# :loop
+MAP_CREATE 0 !map
+
+"foo" 69  @map MAP_SET 3
+"bar" 420 @map MAP_SET 3
+67 "hello" @map MAP_SET 3
+@map "\n" WRITE 2
+
+"bar" @map MAP_DEL 2
+@map "\n" WRITE 2
+
+67 "boobies" @map MAP_SET 3
+@map "\n" WRITE 2
+# jump loop
+
