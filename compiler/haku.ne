@@ -95,6 +95,7 @@ STRING_OPERATORS = {
 BUILTIN_FUNCTIONS = enum([
     "WRITE", "READ", "STRING_CONCAT", "STRING_LENGTH", "STRING_AT",
     "ARRAY_CREATE", "ARRAY_PUSH", "ARRAY_POP", "ARRAY_LENGTH", "ARRAY_AT",
+    "MAP_CREATE", "MAP_SET", "MAP_GET", "MAP_DEL",
 ])
 
 def compile_instruction(inst) {
